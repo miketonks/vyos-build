@@ -51,6 +51,14 @@ vmware:
 	@scripts/check-vm-build-env
 	@scripts/build-vmware-image
 
+.PHONY: ami
+.ONESHELL:
+ami:
+	@set -e
+	@scripts/check-vm-build-env
+	@scripts/build-ami
+	@scripts/import-ami
+
 .PHONY: clean
 .ONESHELL:
 clean:

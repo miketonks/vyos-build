@@ -1,0 +1,12 @@
+{
+  "Description": "Import VyOS OVA.", 
+  "DiskContainers": [
+    {
+      "Description": "VyOS OVA.", 
+      "UserBucket": {
+        "S3Bucket": "{{backet_name}}", 
+        "S3Key": "vyos_ami_image.ova"
+      }
+    }
+  ]
+}

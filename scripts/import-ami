@@ -1,0 +1,107 @@
+#!/bin/bash
+
+# This method doesn't work for now.
+#aws iam create-role --role-name vmimport --assume-role-policy-document file://../tools/trust-policy.json
+#aws iam put-role-policy --role-name vmimport --policy-name vmimport --policy-document file://../tools/role-policy.json
+#aws s3 cp packer_build/ami/vyos_ami_image.ova s3://${backet_name}/
+#id=$(aws ec2 import-image --cli-input-json file://ami-import.json | jq .ImportImageTasks[0].StatusMessage)
+#while true; do
+#  status=$(aws ec2 describe-import-image-tasks --import-task-ids ${id} | jq .ImportImageTasks[0].StatusMessage)
+#  echo "${status}"
+#  sleep 1
+#done
+
+
+# Inspired from https://github.com/coreos/scripts/blob/master/oem/ami/import.sh.
+# Import task is pending status forever...
+name="VyOS-1.2.0"
+description="VyOS 1.2.0"
+arch=x86_64
+tmpimg=../packer_build/ami/vyos_ami_image.vmdk
+EC2_IMPORT_ZONE=ap-northeast-1a
+region=$(echo "${EC2_IMPORT_ZONE}" | sed 's/.$//')
+export EC2_URL="https://ec2.${region}.amazonaws.com"
+
+importid=$(ec2-import-volume "${tmpimg}" \
+  -f vmdk -s 4 -x 2 \
+  -z "${EC2_IMPORT_ZONE}" \
+  -b "kusakabe-test" \
+  -o "${AWS_ACCESS_KEY}" \
+  -w "${AWS_SECRET_KEY}" \
+  --no-upload | awk '/IMPORTVOLUME/{print $4}')
+ec2-resume-import "${tmpimg}" \
+  -t "${importid}" -x 2 \
+  -o "${AWS_ACCESS_KEY}" \
+  -w "${AWS_SECRET_KEY}"
+
+echo "Waiting on import task ${importid}"
+importstat=$(ec2-describe-conversion-tasks "${importid}" | grep IMPORTVOLUME)
+while $(grep -qv completed <<<"${importstat}"); do
+  sed -e 's/.*StatusMessage/Status:/' <<<"${importstat}"
+  sleep 30
+  importstat=$(ec2-describe-conversion-tasks "${importid}" | grep IMPORTVOLUME)
+done
+
+volumeid=$(ec2-describe-conversion-tasks "${importid}" | \
+  grep DISKIMAGE | sed -e 's%.*\(vol-[a-z0-9]*\).*%\1%')
+
+while ! ec2-describe-volumes "$volumeid" | grep -q available
+  do sleep 1; done
+
+echo "Volume ${volumeid} ready, deleting upload from S3..."
+ec2-delete-disk-image \
+  -t "${importid}" \
+  -o "${AWS_ACCESS_KEY}" \
+  -w "${AWS_SECRET_KEY}"
+
+echo "Creating snapshot..."
+snapshotid=$(ec2-create-snapshot --description "$name" "$volumeid" | cut -f2)
+echo "Waiting on snapshot ${snapshotid}"
+while ec2-describe-snapshots "$snapshotid" | grep -q pending
+  do sleep 30; done
+
+echo "Created snapshot $snapshotid, deleting $volumeid"
+ec2-delete-volume "$volumeid"
+
+echo "Registering hvm AMI"
+hvm_amiid=$(ec2-register                              \
+  --name "${name}-hvm"                                \
+  --description "$description (HVM)"                  \
+  --architecture "$arch"                              \
+  --virtualization-type hvm                           \
+  --root-device-name /dev/xvda                        \
+  --block-device-mapping /dev/xvda=$snapshotid::true  \
+  --sriov simple                                      \
+  cut -f2)
+
+echo "Registering paravirtual AMI"
+amiid=$(ec2-register                                  \
+  --name "$name"                                      \
+  --description "$description (PV)"                   \
+  --architecture "$arch"                              \
+  --virtualization-type paravirtual                   \
+  --kernel "$akiid"                                   \
+  --root-device-name /dev/sda                         \
+  --block-device-mapping /dev/sda=$snapshotid::true   \
+  cut -f2)
+
+if [[ -n "${GRANT_LAUNCH}" ]]; then
+  echo "Granting launch permission to ${GRANT_LAUNCH}"
+  ec2-modify-image-attribute "${hvm_amiid}" \
+      --launch-permission --add "${GRANT_LAUNCH}"
+  ec2-modify-image-attribute "${amiid}" \
+      --launch-permission --add "${GRANT_LAUNCH}"
+fi
+
+cat <<EOF
+$description
+architecture: $arch
+region:       $region (${EC2_IMPORT_ZONE})
+aki id:       $akiid
+name:         $name
+description:  $description
+EBS volume:   $volumeid (deleted)
+EBS snapshot: $snapshotid
+PV AMI id:    $amiid
+HVM AMI id:   $hvm_amiid
+EOF

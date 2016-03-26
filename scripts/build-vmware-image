@@ -33,16 +33,16 @@ else
 fi
 
 export PACKER_BUILD_DIR=packer_build
-export PACKER_LOG_PATH=${PACKER_BUILD_DIR}/build_vmware_ovf.log
-export PACKER_LOG=1
+#export PACKER_LOG_PATH=${PACKER_BUILD_DIR}/build_vmware_ovf.log
+#export PACKER_LOG=1
 
-mkdir -p ${PACKER_BUILD_DIR}
 DST_DIR=${PACKER_BUILD_DIR}/vmware
+mkdir -p ${DST_DIR}
 
-packer build -only=vmware-image scripts/packer.json
+#packer build -only=vmware-image scripts/packer.json
 
 # Convert raw image to VMDK
-source_image=${DST_DIR}/vyos_vmware_image.img
+source_image=${PACKER_BUILD_DIR}/qemu/vyos_qemu_image.img
 tmp_vmdk=${DST_DIR}/tmp.vmdk
 vmdk=${DST_DIR}/vyos_vmware_image.vmdk
 ovf=${DST_DIR}/vyos_vmware_image.ovf

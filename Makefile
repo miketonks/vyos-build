@@ -68,6 +68,13 @@ hyperv:
 	@scripts/check-vm-build-env
 	@scripts/build-hyperv-image
 
+.PHONY: azure
+.ONESHELL:
+azure:
+	@set -e
+	@scripts/check-vm-build-env
+	@scripts/build-azure-image
+
 .PHONY: clearfog
 .ONESHELL:
 clearfog: clean prepare

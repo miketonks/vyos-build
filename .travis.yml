@@ -1,4 +1,8 @@
 os: linux
 dist: bionic
-before_script: sudo apt install live-build pbuilder devscripts python3-pystache python3-git
-script: ./configure && make iso
+before_install:
+  - sudo apt update
+  - sudo apt install live-build pbuilder devscripts python3-pystache python3-git
+script:
+  - ./configure
+  - make iso
